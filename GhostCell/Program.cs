@@ -66,9 +66,9 @@ namespace GhostCell
 
             public string Output()
             {
-                int maxD = factories.Where(x => x.Arg1 == 1).Max(x => x.Arg2);
-                maxD = maxD > 10 ? maxD : -1;
-                Entity myF = factories.FirstOrDefault(x => x.Arg1 == 1 && x.Arg2 == maxD);
+                UpdateW();
+
+                Entity myF = factories.Where(x => x.Arg1 == 1).OrderByDescending(x => x.W).FirstOrDefault();
                 int d = myF != null ? myF.Arg2 / 2 : -1;
                 Entity nF = factories.FirstOrDefault(x => x.Arg1 == 0 && x.Arg2 <= d && x.Arg3 > 0);
                 Entity eF = factories.FirstOrDefault(x => x.Arg1 == -1 && x.Arg2 <= d);
@@ -78,6 +78,21 @@ namespace GhostCell
                     return $"MOVE {myF.Id} {eF.Id} {d}";
                 else
                     return "WAIT";
+            }
+            public void UpdateW()
+            {
+                List<Entity> fc = factories;
+
+                for (int i = 0; i < fc.Count; i++)
+                {
+                    double e = troops
+                        .Where(x => x.Arg1 == (-1) * fc[i].Arg1 && x.Arg3 == fc[i].Id)
+                        .Sum(x => x.Arg4 - x.Arg5 * fc[i].Arg3);
+                    double m = troops
+                        .Where(x => x.Arg1 == fc[i].Arg1 && x.Arg3 == fc[i].Id)
+                        .Sum(x => x.Arg4 - x.Arg5 * fc[i].Arg3);
+                    fc[i].W = fc[i].Arg2 - e + m - fc[i].Arg1 * fc[i].Arg4 * 100;
+                }
             }
 
             public void Add(Entity e)
