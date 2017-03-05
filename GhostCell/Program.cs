@@ -6,6 +6,10 @@ using System.Threading.Tasks;
 
 namespace GhostCell
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+
     class Player
     {
         public const string FACTORY = "FACTORY";
@@ -46,15 +50,7 @@ namespace GhostCell
                     e.Arg5 = int.Parse(inputs[6]);
                     gm.Add(e);
                 }
-
-                // Write an action using Console.WriteLine()
-                // To debug: Console.Error.WriteLine("Debug messages...");
-
                 Console.WriteLine(gm.Output());
-
-
-                // Any valid action, such as "WAIT" or "MOVE source destination cyborgs"
-                //Console.WriteLine("WAIT");
             }
         }
 
@@ -65,65 +61,85 @@ namespace GhostCell
             List<Entity> bombs = new List<Entity>();
             Graph graph = new Graph();
             int bombCount = 2;
+            bool firstTurn = true;
 
             public string Output()
             {
-                UpdateW();
-                List<Entity> myfct = factories.Where(x => x.Arg1 == 1).ToList();
-                List<Entity> nfct = factories
-                    .Where(x => x.Arg1 == 0 && x.Arg3 > 0 && myfct.Count < 3 && x.W < 1).ToList();
-                List<Entity> efct = factories.Where(x => x.Arg1 == -1 && x.Arg3 > 0 && x.W < 0).ToList();
                 List<string> command = new List<string>();
-
-                for (int i = 0; i < myfct.Count; i++)
+                UpdateW();
+                if (firstTurn)
                 {
-                    int d = myfct[i].Arg2;// / 2;
-                    Entity nf = GetNearF(myfct[i], nfct);
-                    Entity ef = GetNearF(myfct[i], efct.Where(x => x.Id != myfct[i].Id).ToList());
-
-                    if (myfct[i].W < 10 || myfct[i].Arg2 < 2)
-                    {
-                        var f = factories
-                            .Where(x => x.Arg1 == -1 && x.Id != myfct[i].Id && x.Arg3 > 0 && x.Arg4 == 0).ToList();
-                        if (bombCount > 0 && bombs.Where(x => x.Arg1 == 1).Count() == 0 && f.Count > 0)
-                        {
-                            command.Add($"BOMB {myfct[i].Id} {Min(f, x => x.W).Id}");
-                            bombCount--;
-                            Entity b = new Entity();
-                            b.Arg1 = 1;
-                            bombs.Add(b);
-                        }
-                    }
-                    else if (myfct[i].Arg2 > 10 && myfct[i].Arg3 < 3 && myfct[i].W > 10 && myfct.Count > 3)
-                    {
-                        command.Add($"INC {myfct[i].Id}");
-                        myfct[i].W -= 10;
-                    }
-                    else if (nf != null)
-                    {
-                        d = nf.Arg2 < d ? nf.Arg2 + 1 : d;
-                        command.Add($"MOVE {myfct[i].Id} {nf.Id} {d}");
-                        myfct[i].W -= d;
-                        nf.W += d;
-                    }
-                    else if (ef != null)
-                    {
-                        d = ef.Arg2 < d ? (ef.Arg2 + myfct[i].Arg2) >> 1 : d;
-                        command.Add($"MOVE {myfct[i].Id} {ef.Id} {d}");
-                        myfct[i].W -= d;
-                        ef.W += d;
-                    }
-
+                    Concuer(command);
+                    firstTurn = false;
+                }
+                else
+                {
+                    Battle(command);
                 }
 
                 troops = new List<Entity>();
                 bombs = new List<Entity>();
 
-                if (command.Count > 0)
-                    return string.Join(";", command);
-                else
+                if (command.Count == 0)
                     return "WAIT";
+                else
+                    return string.Join(";", command);
             }
+
+            public void Concuer(List<string> command)
+            {
+                Entity mf = factories.FirstOrDefault(x => x.Arg1 == 1);
+                Entity ef = factories.FirstOrDefault(x => x.Arg1 == -1);
+                List<Entity> netral = factories
+                    .Where(x => x.Arg1 == 0 && x.Arg3 > 0)
+                    .Where(x => graph.Distance(x, mf) <= graph.Distance(x, ef))
+                    .OrderBy(x => graph.Distance(x, mf))
+                    .ToList();
+                for (int i = 0; i < netral.Count; i++)
+                {
+                    int c = netral[i].Arg2 < mf.Arg2 ? netral[i].Arg2 + 1 : -1;
+                    mf.Arg2 -= c;
+                    if (c != -1)
+                        command.Add($"MOVE {mf.Id} {netral[i].Id} {c}");
+                }
+
+            }
+
+            public void Battle(List<string> command)
+            {
+                Entity e = factories
+                    .Where(x => x.W < 0)
+                    .OrderByDescending(x => x.W)
+                    .FirstOrDefault();
+                if (e == null)
+                    e = factories
+                        .OrderBy(x => x.W)
+                        .FirstOrDefault();
+                List<Entity> fs = factories
+                    .Where(x => x.W > 5 && x.Arg1 == 1)
+                    .OrderBy(x => graph.Distance(x, e))
+                    .ToList();
+
+                if (fs.Count > 1 && bombCount > 0 && !bombs.Any(x => x.Arg1 == 1) && e.Arg1 != 1)
+                {
+                    command.Add($"BOMB {fs[0].Id} {e.Id}");
+                    bombCount--;
+                }
+
+                for (int i = 0; i < fs.Count; i++)
+                {
+                    if (!troops.Any(x => x.Arg1 == -1 && x.Arg3 == fs[i].Id) && fs[i].Arg2 >= 10 && fs[i].Arg3 < 3)
+                    {
+                        command.Add($"INC {fs[i].Id}");
+                    }
+                    else
+                    {
+                        int d = (int)fs[i].W;// > 1 ? fs[i].Arg2 / 2 : fs[i].Arg2;
+                        command.Add($"MOVE {fs[i].Id} {graph.Step(fs[i], e)} {d}");
+                    }
+                }
+            }
+            
             public void UpdateW()
             {
                 List<Entity> fc = factories;
@@ -135,18 +151,18 @@ namespace GhostCell
                         .Where(x => x.Arg1 == -1 && x.Arg3 == fc[i].Id)
                         .Sum(x =>
                         {
-                            double r = x.Arg4 - x.Arg5 * fc[i].Arg3;
+                            double r = x.Arg5 == 0 ? x.Arg4 : (double)x.Arg4 / (double)x.Arg5; //x.Arg4 - x.Arg5 * fc[i].Arg3;
                             return r > 0 ? r : 0;
                         });
                     double m = troops
                         .Where(x => x.Arg1 == 1 && x.Arg3 == fc[i].Id)
                         .Sum(x =>
                         {
-                            double r = x.Arg4 - x.Arg5 * fc[i].Arg3;
+                            double r = x.Arg5 == 0 ? x.Arg4 : (double)x.Arg4 / (double)x.Arg5; //x.Arg4 - x.Arg5 * fc[i].Arg3;
                             return r > 0 ? r : 0;
                         });
                     fc[i].W = a * fc[i].Arg2 - e + m - fc[i].Arg4 * 100;
-                    Console.Error.WriteLine($"{fc[i].Id} : {fc[i].W}");
+                    Console.Error.WriteLine($"{fc[i].Id} : {fc[i].W:0.00}");
                 }
             }
 
@@ -166,22 +182,6 @@ namespace GhostCell
                 return near;
             }
 
-            public Entity Min<T>(List<Entity> list, Func<Entity, T> prop) where T : IComparable
-            {
-                T min = list.Count > 0 ? prop(list[0]) : default(T);
-                Entity e = list.Count > 0 ? list[0] : null;
-                for (int i = 0; i < list.Count; i++)
-                {
-                    T c = prop(list[i]);
-                    if (min.CompareTo(c) > 0)
-                    {
-                        min = c;
-                        e = list[i];
-                    }
-                }
-                return e;
-            }
-
             public void Add(Entity e)
             {
                 switch (e.Type)
@@ -191,10 +191,12 @@ namespace GhostCell
                     case BOMB: bombs.Add(e); break;
                 }
             }
+
             public void Add(Link l)
             {
                 graph.Add(l);
             }
+
             public void UpdateFactory(Entity factory)
             {
                 Entity f = factories.FirstOrDefault(x => x.Equals(factory));
@@ -203,7 +205,10 @@ namespace GhostCell
                     f.Update(factory);
                 }
                 else
+                {
                     factories.Add(factory);
+                    graph.SetE(factory);
+                }
             }
         }
 
@@ -252,6 +257,8 @@ namespace GhostCell
         {
             public int Factory1 { get; set; }
             public int Factory2 { get; set; }
+            public Entity F1 { get; set; }
+            public Entity F2 { get; set; }
             public int Distance { get; set; }
             public Link()
             {
@@ -262,6 +269,17 @@ namespace GhostCell
                 this.Factory1 = f1;
                 this.Factory2 = f2;
                 this.Distance = d;
+            }
+            public void SetFactory(Entity e)
+            {
+                if (this.Factory1 == e.Id)
+                    this.F1 = e;
+                else
+                    this.F2 = e;
+            }
+            public bool Contains(Entity e)
+            {
+                return e.Id == Factory1 || e.Id == Factory2;
             }
         }
 
@@ -280,6 +298,12 @@ namespace GhostCell
             {
                 this._links.Add(new Link(f1, f2, d));
             }
+            public void SetE(Entity e)
+            {
+                List<Link> links = _links.Where(x => x.Contains(e)).ToList();
+                for (int i = 0; i < links.Count; i++)
+                    links[i].SetFactory(e);
+            }
             public int Distance(int f1, int f2)
             {
                 return this._links.Where(x => x.Factory1 == f1 || x.Factory2 == f1)
@@ -289,6 +313,33 @@ namespace GhostCell
             public int Distance(Entity f1, Entity f2)
             {
                 return this.Distance(f1.Id, f2.Id);
+            }
+            public int Step(Entity from, Entity to)
+            {
+                int dist = Distance(from, to);
+                List<Link> flinks = _links
+                    .Where(x => x.Contains(from))
+                    .Where(x => x.Distance <= dist)
+                    .ToList();
+                List<Link> tlinks = _links
+                    .Where(x => x.Contains(to))
+                    .Where(x => x.Distance <= dist)
+                    .ToList();
+                List<Link> optimal = flinks
+                    .Where(x => tlinks.Any(y => y.Contains(x.F1) || y.Contains(x.F2)))
+                    .Where(x =>
+                    {
+                        Entity cur = x.F1.Equals(from) ? x.F2 : x.F1;
+                        int d = Distance(cur, to) + x.Distance;
+                        return d <= dist;
+                    })
+                    .OrderBy(x => x.Distance)
+                    .ToList();
+                Link l = optimal.FirstOrDefault();
+                if (l == null)
+                    return to.Id;
+                Entity e = l.F1.Equals(from) ? l.F2 : l.F1;
+                return e.Id;
             }
         }
         #endregion
